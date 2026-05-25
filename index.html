@@ -157,17 +157,26 @@
             let filterNode = null;
 
             function resizeCanvas() {
-                // Keep it within screen bounds, slightly smaller for margins
-                const maxWidth = window.innerWidth * 0.9;
-                const maxHeight = window.innerHeight * 0.6; // Reduced to make room for controls
+                const isMobile = window.innerWidth < 768;
+                const maxWidth = window.innerWidth * (isMobile ? 0.95 : 0.9);
                 
-                // Try to keep a landscape aspect ratio, but fit mobile screens
-                let targetWidth = Math.min(800, maxWidth);
-                let targetHeight = targetWidth * 0.6;
+                // Dynamically check available height so buttons aren't cut off
+                const controlsElement = document.getElementById('controls');
+                const titleElement = document.querySelector('.title-text');
+                const controlsHeight = controlsElement ? controlsElement.offsetHeight : 100;
+                const titleHeight = titleElement ? titleElement.offsetHeight : 50;
+                
+                const availableHeight = window.innerHeight - controlsHeight - titleHeight - 60; // 60px padding
+                
+                let targetWidth = Math.min(1000, maxWidth);
+                let targetHeight;
 
-                if (targetHeight > maxHeight) {
-                    targetHeight = maxHeight;
-                    targetWidth = targetHeight / 0.6;
+                if (isMobile) {
+                    // On mobile, expand the canvas to use up the vertical space
+                    targetHeight = availableHeight;
+                } else {
+                    // On desktop, keep a wide landscape view
+                    targetHeight = Math.min(availableHeight, targetWidth * 0.6);
                 }
 
                 canvas.width = targetWidth;
@@ -185,7 +194,8 @@
             }
 
             window.addEventListener('resize', resizeCanvas);
-            resizeCanvas(); // Initial call
+            // Ensure resize runs after fonts/elements load to calculate correct heights
+            setTimeout(resizeCanvas, 50); 
 
             function spawnParticles(x, y, color) {
                 for (let i = 0; i < 3; i++) {
@@ -529,6 +539,15 @@
                 else if (currentTool === 'turtle') {
                      if (distance > 50) {
                          turtles.push({x: currentX, y: currentY, angle: Math.atan2(dy, dx)});
+                         lastX = currentX;
+                         lastY = currentY;
+                     }
+                     return;
+                }
+                else if (currentTool === 'butterfly') {
+                     if (distance > 30) {
+                         const bColors = ['#00d2d3', '#ff9f43', '#feca57', '#ff6b6b'];
+                         butterflies.push({x: currentX, y: currentY, angle: Math.atan2(dy, dx), color: bColors[Math.floor(Math.random()*bColors.length)], frame: Math.random() * 10});
                          lastX = currentX;
                          lastY = currentY;
                      }
