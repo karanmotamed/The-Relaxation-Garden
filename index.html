@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Relaxation Garden</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* Prevent scrolling */
+            font-family: 'Inter', sans-serif;
+            touch-action: none; /* Crucial for custom touch handling on canvas */
+        }
+
+        #app-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            /* The sunset gradient animation */
+            background: linear-gradient(180deg, #FFB75E, #ED8F03, #d44d5c, #5e2a84, #2a0845);
+            background-size: 100% 500%;
+            animation: sunset 60s ease-in-out infinite alternate;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        @keyframes sunset {
+            0% { background-position: 0% 0%; }
+            100% { background-position: 0% 100%; }
+        }
+
+        #sand-canvas {
+            /* Sand texture and styling */
+            background-color: #f4e8d3; /* Base sand color */
+            /* A subtle noise pattern for sand texture */
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E");
+            border-radius: 20px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.1), 0 10px 30px rgba(0,0,0,0.2);
+            cursor: crosshair;
+            z-index: 10;
+        }
+
+        #controls {
+            position: relative;
+            margin-top: 20px;
+            z-index: 20;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            width: 100%;
+            padding: 0 10px;
+            box-sizing: border-box;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .btn.active {
+            background: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+            border-color: rgba(255, 255, 255, 0.8);
+        }
+        
+        .title-text {
+            position: relative;
+            margin-bottom: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1.5rem;
+            font-weight: 300;
+            letter-spacing: 2px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <h1 class="title-text">The Relaxation Garden</h1>
+        
+        <div style="position: relative;">
+            <canvas id="sand-canvas"></canvas>
+            <canvas id="particle-canvas" style="position: absolute; top: 0; left: 0; pointer-events: none; z-index: 12;"></canvas>
+        </div>
+
+        <div id="controls">
+            <button id="tool-rake" class="btn active" aria-label="Zen Rake">Rake</button>
+            <button id="tool-rainbow" class="btn" aria-label="Rainbow Stream">✨ Magic</button>
+            <button id="tool-turtle" class="btn" aria-label="Turtle">🐢 Turtle</button>
+            <button id="tool-butterfly" class="btn" aria-label="Butterfly">🦋 Butterfly</button>
+            <button id="tool-crab" class="btn" aria-label="Crab">🦀 Crab</button>
+            <button id="tool-dragonfly" class="btn" aria-label="Dragonfly">🪲 Dragonfly</button>
+            <button id="tool-koi" class="btn" aria-label="Koi Fish">🐟 Koi</button>
+            <button id="btn-smooth" class="btn" aria-label="Smooth the sand">
+                Smooth
+            </button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('sand-canvas');
+            const ctx = canvas.getContext('2d');
+            const particleCanvas = document.getElementById('particle-canvas');
+            const pCtx = particleCanvas.getContext('2d');
+            const btnSmooth = document.getElementById('btn-smooth');
+
+            let isDrawing = false;
+            let lastX = 0;
+            let lastY = 0;
+            
+            // New state for colorful tools
+            let currentTool = 'rake';
+            let hue = 0;
+            let particles = [];
+            let turtles = [];
+            let butterflies = [];
+            let crabs = [];
+            let dragonflies = [];
+            let kois = [];
+            
+            // High-tech clear state
+            let isClearing = false;
+            let laserX = 0;
+            
+            // Audio setup for the rake sound
+            let audioCtx = null;
+            let oscillator = null;
+            let gainNode = null;
+            let filterNode = null;
+
+            function resizeCanvas() {
+                // Keep it within screen bounds, slightly smaller for margins
+                const maxWidth = window.innerWidth * 0.9;
+                const maxHeight = window.innerHeight * 0.6; // Reduced to make room for controls
+                
+                // Try to keep a landscape aspect ratio, but fit mobile screens
+                let targetWidth = Math.min(800, maxWidth);
+                let targetHeight = targetWidth * 0.6;
+
+                if (targetHeight > maxHeight) {
+                    targetHeight = maxHeight;
+                    targetWidth = targetHeight / 0.6;
+                }
+
+                canvas.width = targetWidth;
+                canvas.height = targetHeight;
+                
+                particleCanvas.width = targetWidth;
+                particleCanvas.height = targetHeight;
+
+                // Set initial drawing styles
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+                // Soft shadow for depth
+                ctx.shadowBlur = 4;
+                ctx.shadowColor = 'rgba(150, 120, 90, 0.5)';
+            }
+
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas(); // Initial call
+
+            function spawnParticles(x, y, color) {
+                for (let i = 0; i < 3; i++) {
+                    particles.push({
+                        x: x + (Math.random() - 0.5) * 20,
+                        y: y + (Math.random() - 0.5) * 20,
+                        vx: (Math.random() - 0.5) * 2,
+                        vy: (Math.random() - 0.5) * 2 - 1,
+                        life: 1,
+                        color: color,
+                        size: Math.random() * 4 + 1
+                    });
+                }
+            }
+
+            function animateParticles() {
+                pCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    let p = particles[i];
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.life -= 0.02; // Fade out gradually
+                    
+                    if (p.life <= 0) {
+                        particles.splice(i, 1);
+                        continue;
+                    }
+                    
+                    pCtx.globalAlpha = p.life;
+                    pCtx.fillStyle = p.color;
+                    pCtx.beginPath();
+                    pCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    pCtx.fill();
+                    
+                    pCtx.shadowBlur = 10;
+                    pCtx.shadowColor = p.color;
+                }
+
+                // Animate Turtles
+                for(let i=0; i < turtles.length; i++){
+                    let t = turtles[i];
+                    t.angle += (Math.random() - 0.5) * 0.05;
+                    t.x += Math.cos(t.angle) * 0.2;
+                    t.y += Math.sin(t.angle) * 0.2;
+                    
+                    if(t.x < -20) t.x = canvas.width + 20;
+                    if(t.x > canvas.width + 20) t.x = -20;
+                    if(t.y < -20) t.y = canvas.height + 20;
+                    if(t.y > canvas.height + 20) t.y = -20;
+
+                    pCtx.save();
+                    pCtx.translate(t.x, t.y);
+                    pCtx.rotate(t.angle);
+                    
+                    pCtx.globalAlpha = 0.9;
+                    pCtx.shadowBlur = 4;
+                    pCtx.shadowColor = '#1b5e20';
+                    
+                    // Legs
+                    pCtx.fillStyle = '#388e3c';
+                    for(let j=0; j<4; j++) {
+                        pCtx.save();
+                        pCtx.rotate(j * Math.PI/2 + Math.PI/4);
+                        pCtx.beginPath();
+                        pCtx.ellipse(8, 8, 4, 2, 0, 0, Math.PI*2);
+                        pCtx.fill();
+                        pCtx.restore();
+                    }
+                    
+                    // Head
+                    pCtx.beginPath();
+                    pCtx.ellipse(10, 0, 4, 3, 0, 0, Math.PI*2);
+                    pCtx.fill();
+
+                    // Shell
+                    pCtx.fillStyle = '#2e7d32';
+                    pCtx.beginPath();
+                    pCtx.ellipse(0, 0, 10, 8, 0, 0, Math.PI * 2);
+                    pCtx.fill();
+                    pCtx.strokeStyle = '#1b5e20';
+                    pCtx.lineWidth = 1;
+                    pCtx.stroke();
+                    pCtx.restore();
+                }
+
+                // Animate Butterflies
+                for(let i=0; i < butterflies.length; i++){
+                    let b = butterflies[i];
+                    b.angle += (Math.random() - 0.5) * 0.8;
+                    b.x += Math.cos(b.angle) * 1.5;
+                    b.y += Math.sin(b.angle) * 1.5;
+                    b.frame += 0.4;
+                    
+                    if(b.x < -20) b.x = canvas.width + 20;
+                    if(b.x > canvas.width + 20) b.x = -20;
+                    if(b.y < -20) b.y = canvas.height + 20;
+                    if(b.y > canvas.height + 20) b.y = -20;
+
+                    pCtx.save();
+                    pCtx.translate(b.x, b.y);
+                    pCtx.rotate(b.angle + Math.PI/2);
+                    
+                    pCtx.globalAlpha = 0.9;
+                    pCtx.fillStyle = b.color;
+                    pCtx.shadowBlur = 5;
+                    pCtx.shadowColor = b.color;
+                    
+                    let flap = Math.abs(Math.sin(b.frame));
+                    
+                    // Wings
+                    pCtx.beginPath();
+                    pCtx.ellipse(4 * flap, 0, 6 * flap, 4, 0, 0, Math.PI*2);
+                    pCtx.fill();
+                    pCtx.beginPath();
+                    pCtx.ellipse(-4 * flap, 0, 6 * flap, 4, 0, 0, Math.PI*2);
+                    pCtx.fill();
+                    
+                    // Body
+                    pCtx.fillStyle = '#333';
+                    pCtx.beginPath();
+                    pCtx.ellipse(0, 0, 1, 4, 0, 0, Math.PI*2);
+                    pCtx.fill();
+                    pCtx.restore();
+                }
+
+                // Animate Crabs
+                for(let i=0; i < crabs.length; i++){
+                    let c = crabs[i];
+                    c.angle += (Math.random() - 0.5) * 0.1;
+                    c.frame = (c.frame || 0) + 0.2;
+                    c.x += Math.cos(c.angle + Math.PI/2) * 0.4 * (Math.sin(c.frame)>0?1:0.5);
+                    c.y += Math.sin(c.angle + Math.PI/2) * 0.4 * (Math.sin(c.frame)>0?1:0.5);
+
+                    if(c.x < -20) c.x = canvas.width + 20;
+                    if(c.x > canvas.width + 20) c.x = -20;
+                    if(c.y < -20) c.y = canvas.height + 20;
+                    if(c.y > canvas.height + 20) c.y = -20;
+
+                    pCtx.save();
+                    pCtx.translate(c.x, c.y);
+                    pCtx.rotate(c.angle);
+                    pCtx.globalAlpha = 0.9;
+                    pCtx.fillStyle = '#e55039';
+                    pCtx.shadowBlur = 4;
+                    pCtx.shadowColor = '#b71540';
+
+                    let legWiggle = Math.sin(c.frame) * 0.2;
+                    pCtx.strokeStyle = '#e55039';
+                    pCtx.lineWidth = 2;
+                    for(let j=-1; j<=1; j+=2) {
+                        for(let k=-1; k<=1; k+=1) {
+                           pCtx.beginPath();
+                           pCtx.moveTo(0, j*4);
+                           pCtx.lineTo(k*6, j*(8 + legWiggle*5));
+                           pCtx.stroke();
+                        }
+                    }
+
+                    pCtx.beginPath();
+                    pCtx.arc(6, -6, 3, 0, Math.PI*2);
+                    pCtx.arc(6, 6, 3, 0, Math.PI*2);
+                    pCtx.fill();
+
+                    pCtx.beginPath();
+                    pCtx.ellipse(0, 0, 6, 8, 0, 0, Math.PI*2);
+                    pCtx.fill();
+                    pCtx.restore();
+                }
+
+                // Animate Dragonflies
+                for(let i=0; i < dragonflies.length; i++){
+                    let d = dragonflies[i];
+                    if (Math.random() < 0.05) {
+                        d.targetAngle = d.angle + (Math.random() - 0.5) * Math.PI;
+                        d.speed = Math.random() * 3 + 1;
+                    }
+                    d.angle += (d.targetAngle - d.angle) * 0.1;
+                    d.speed *= 0.95; 
+                    if (d.speed < 0.5) d.speed = 0.5;
+                    d.x += Math.cos(d.angle) * d.speed;
+                    d.y += Math.sin(d.angle) * d.speed;
+                    d.frame += d.speed * 0.5;
+
+                    if(d.x < -20) d.x = canvas.width + 20;
+                    if(d.x > canvas.width + 20) d.x = -20;
+                    if(d.y < -20) d.y = canvas.height + 20;
+                    if(d.y > canvas.height + 20) d.y = -20;
+
+                    pCtx.save();
+                    pCtx.translate(d.x, d.y);
+                    pCtx.rotate(d.angle);
+                    pCtx.globalAlpha = 0.9;
+                    pCtx.fillStyle = '#0abde3';
+                    pCtx.shadowBlur = 3;
+                    pCtx.shadowColor = '#0abde3';
+
+                    pCtx.beginPath();
+                    pCtx.ellipse(0, 0, 10, 1.5, 0, 0, Math.PI*2);
+                    pCtx.fill();
+
+                    let flap = Math.abs(Math.sin(d.frame * 2));
+                    pCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                    pCtx.beginPath();
+                    pCtx.ellipse(2, 4 * flap, 2, 6, Math.PI/6, 0, Math.PI*2);
+                    pCtx.ellipse(2, -4 * flap, 2, 6, -Math.PI/6, 0, Math.PI*2);
+                    pCtx.ellipse(-2, 3 * flap, 1.5, 5, Math.PI/4, 0, Math.PI*2);
+                    pCtx.ellipse(-2, -3 * flap, 1.5, 5, -Math.PI/4, 0, Math.PI*2);
+                    pCtx.fill();
+                    pCtx.restore();
+                }
+
+                // Animate Koi
+                for(let i=0; i < kois.length; i++){
+                    let k = kois[i];
+                    k.angle += (Math.random() - 0.5) * 0.1;
+                    k.x += Math.cos(k.angle) * 0.8;
+                    k.y += Math.sin(k.angle) * 0.8;
+                    k.frame += 0.15;
+                    
+                    // Wrap around
+                    if(k.x < -20) k.x = canvas.width + 20;
+                    if(k.x > canvas.width + 20) k.x = -20;
+                    if(k.y < -20) k.y = canvas.height + 20;
+                    if(k.y > canvas.height + 20) k.y = -20;
+
+                    pCtx.save();
+                    pCtx.translate(k.x, k.y);
+                    pCtx.rotate(k.angle);
+                    
+                    pCtx.globalAlpha = 0.8;
+                    pCtx.fillStyle = k.color;
+                    pCtx.shadowBlur = 8;
+                    pCtx.shadowColor = k.color;
+                    
+                    // Body
+                    pCtx.beginPath();
+                    pCtx.ellipse(0, 0, 12, 6, 0, 0, Math.PI * 2);
+                    pCtx.fill();
+                    
+                    // Tail
+                    let tailWiggle = Math.sin(k.frame) * 0.5;
+                    pCtx.beginPath();
+                    pCtx.moveTo(-10, 0);
+                    pCtx.lineTo(-20, -5 + tailWiggle * 10);
+                    pCtx.lineTo(-20, 5 + tailWiggle * 10);
+                    pCtx.fill();
+                    pCtx.restore();
+                }
+
+                if (isClearing) {
+                    laserX += canvas.width / 40; // Sweep speed
+
+                    // Clear the main sand canvas behind the laser
+                    ctx.clearRect(0, 0, laserX, canvas.height);
+
+                    // Remove entities behind the laser
+                    particles = particles.filter(p => p.x >= laserX);
+                    turtles = turtles.filter(t => t.x >= laserX);
+                    butterflies = butterflies.filter(b => b.x >= laserX);
+                    crabs = crabs.filter(c => c.x >= laserX);
+                    dragonflies = dragonflies.filter(d => d.x >= laserX);
+                    kois = kois.filter(k => k.x >= laserX);
+
+                    // Draw the high-tech laser beam
+                    pCtx.save();
+                    pCtx.shadowBlur = 20;
+                    pCtx.shadowColor = '#00e5ff';
+                    pCtx.fillStyle = '#00e5ff';
+                    pCtx.fillRect(laserX - 3, 0, 6, particleCanvas.height);
+                    
+                    pCtx.shadowBlur = 5;
+                    pCtx.shadowColor = '#ffffff';
+                    pCtx.fillStyle = '#ffffff';
+                    pCtx.fillRect(laserX - 1, 0, 2, particleCanvas.height);
+                    pCtx.restore();
+
+                    // Finish clearing
+                    if (laserX > canvas.width + 20) {
+                        isClearing = false;
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    }
+                }
+
+                pCtx.globalAlpha = 1.0;
+                pCtx.shadowBlur = 0;
+                requestAnimationFrame(animateParticles);
+            }
+            animateParticles();
+
+            function draw(e) {
+                if (!isDrawing || isClearing) return;
+                e.preventDefault();
+
+                let currentX, currentY;
+                if (e.type.includes('touch')) {
+                    const rect = canvas.getBoundingClientRect();
+                    currentX = e.touches[0].clientX - rect.left;
+                    currentY = e.touches[0].clientY - rect.top;
+                } else {
+                    currentX = e.offsetX;
+                    currentY = e.offsetY;
+                }
+
+                const dx = currentX - lastX;
+                const dy = currentY - lastY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (currentTool === 'rake') {
+                    // Classic Zen Sand
+                    let lineWidth = Math.max(10, 30 - distance);
+                    ctx.lineWidth = lineWidth;
+                    ctx.strokeStyle = '#d4c4a8';
+                    ctx.shadowBlur = 4;
+                    ctx.shadowColor = 'rgba(150, 120, 90, 0.5)';
+
+                    ctx.beginPath();
+                    ctx.moveTo(lastX, lastY);
+                    ctx.lineTo(currentX, currentY);
+                    ctx.stroke();
+
+                    drawRidges(lastX, lastY, currentX, currentY, lineWidth);
+                } 
+                else if (currentTool === 'rainbow') {
+                    // Colorful glowing stream
+                    hue = (hue + 3) % 360;
+                    let lineWidth = Math.max(5, 20 - distance * 0.5);
+                    const color = `hsl(${hue}, 100%, 65%)`;
+                    
+                    ctx.lineWidth = lineWidth;
+                    ctx.strokeStyle = color;
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = color;
+
+                    ctx.beginPath();
+                    ctx.moveTo(lastX, lastY);
+                    ctx.lineTo(currentX, currentY);
+                    ctx.stroke();
+                    
+                    spawnParticles(currentX, currentY, color);
+                }
+                else if (currentTool === 'turtle') {
+                     if (distance > 50) {
+                         turtles.push({x: currentX, y: currentY, angle: Math.atan2(dy, dx)});
+                         lastX = currentX;
+                         lastY = currentY;
+                     }
+                     return;
+                }
+                else if (currentTool === 'crab') {
+                     if (distance > 40) {
+                         crabs.push({x: currentX, y: currentY, angle: Math.atan2(dy, dx), frame: 0});
+                         lastX = currentX;
+                         lastY = currentY;
+                     }
+                     return;
+                }
+                else if (currentTool === 'dragonfly') {
+                     if (distance > 50) {
+                         dragonflies.push({x: currentX, y: currentY, angle: Math.atan2(dy, dx), targetAngle: Math.atan2(dy, dx), speed: 2, frame: 0});
+                         lastX = currentX;
+                         lastY = currentY;
+                     }
+                     return;
+                }
+                else if (currentTool === 'koi') {
+                     if (distance > 60) {
+                         kois.push({x: currentX, y: currentY, angle: Math.atan2(dy, dx), color: Math.random() > 0.5 ? '#ff7675' : '#fdcb6e', frame: Math.random() * 10});
+                         lastX = currentX;
+                         lastY = currentY;
+                     }
+                     return;
+                }
+
+                lastX = currentX;
+                lastY = currentY;
+
+                if (navigator.vibrate && distance > 5) {
+                     navigator.vibrate(5);
+                }
+                
+                updateSound(distance);
+            }
+
+            function drawRidges(x1, y1, x2, y2, width) {
+                // Calculate perpendicular angle
+                const angle = Math.atan2(y2 - y1, x2 - x1);
+                const perpAngle1 = angle + Math.PI / 2;
+                const perpAngle2 = angle - Math.PI / 2;
+
+                const offset = width / 2;
+
+                // Ridge styling
+                ctx.lineWidth = 2;
+                
+                // Highlight ridge (light hitting the raised sand)
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.shadowBlur = 0; // Turn off main shadow for ridges
+                
+                ctx.beginPath();
+                ctx.moveTo(x1 + Math.cos(perpAngle1) * offset, y1 + Math.sin(perpAngle1) * offset);
+                ctx.lineTo(x2 + Math.cos(perpAngle1) * offset, y2 + Math.sin(perpAngle1) * offset);
+                ctx.stroke();
+
+                // Shadow ridge (backside of raised sand)
+                ctx.strokeStyle = 'rgba(100, 80, 50, 0.2)';
+                ctx.beginPath();
+                ctx.moveTo(x1 + Math.cos(perpAngle2) * offset, y1 + Math.sin(perpAngle2) * offset);
+                ctx.lineTo(x2 + Math.cos(perpAngle2) * offset, y2 + Math.sin(perpAngle2) * offset);
+                ctx.stroke();
+                
+                // Restore shadow for main stroke
+                 ctx.shadowBlur = 4;
+                 ctx.shadowColor = 'rgba(150, 120, 90, 0.5)';
+            }
+
+            function initAudio() {
+                if (audioCtx) return; // Already initialized
+                
+                try {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    audioCtx = new AudioContext();
+                    
+                    // Create noise for the rake sound
+                    // We use an oscillator that changes rapidly to simulate granular noise
+                    oscillator = audioCtx.createOscillator();
+                    oscillator.type = 'sine'; // Changed to sine for a peaceful tone
+                    oscillator.frequency.value = 150;
+
+                    // Filter to soften it and make it sound like sand
+                    filterNode = audioCtx.createBiquadFilter();
+                    filterNode.type = 'lowpass';
+                    filterNode.frequency.value = 600; // Lowered filter frequency
+
+                    // Volume control
+                    gainNode = audioCtx.createGain();
+                    gainNode.gain.value = 0; // Start silent
+
+                    oscillator.connect(filterNode);
+                    filterNode.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+
+                    oscillator.start();
+                } catch (e) {
+                    console.log("Web Audio API not supported or user didn't interact yet.");
+                }
+            }
+
+            function updateSound(velocity) {
+                 if (!gainNode || !filterNode) return;
+                 
+                 // Map velocity to volume and filter frequency
+                 const targetVolume = Math.min(0.1, velocity * 0.005);
+                 const targetFreq = 200 + Math.min(600, velocity * 15);
+                 
+                 // Smooth transitions for audio
+                 gainNode.gain.setTargetAtTime(targetVolume, audioCtx.currentTime, 0.1);
+                 filterNode.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.1);
+            }
+
+            function stopSound() {
+                if (gainNode) {
+                    gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                }
+            }
+
+            const startDrawing = (e) => {
+                if (isClearing) return;
+                initAudio();
+                isDrawing = true;
+                
+                if (e.type.includes('touch')) {
+                    const cRect = canvas.getBoundingClientRect();
+                    lastX = e.touches[0].clientX - cRect.left;
+                    lastY = e.touches[0].clientY - cRect.top;
+                } else {
+                    lastX = e.offsetX;
+                    lastY = e.offsetY;
+                }
+                
+                if (currentTool === 'turtle') {
+                     turtles.push({x: lastX, y: lastY, angle: Math.random() * Math.PI * 2});
+                } else if (currentTool === 'butterfly') {
+                     const bColors = ['#00d2d3', '#ff9f43', '#feca57', '#ff6b6b'];
+                     butterflies.push({x: lastX, y: lastY, angle: Math.random() * Math.PI * 2, color: bColors[Math.floor(Math.random()*bColors.length)], frame: Math.random() * 10});
+                } else if (currentTool === 'crab') {
+                     crabs.push({x: lastX, y: lastY, angle: Math.random() * Math.PI * 2, frame: 0});
+                } else if (currentTool === 'dragonfly') {
+                     dragonflies.push({x: lastX, y: lastY, angle: Math.random() * Math.PI * 2, targetAngle: Math.random() * Math.PI * 2, speed: 2, frame: 0});
+                } else if (currentTool === 'koi') {
+                     kois.push({x: lastX, y: lastY, angle: Math.random() * Math.PI * 2, color: Math.random() > 0.5 ? '#ff7675' : '#fdcb6e', frame: Math.random() * 10});
+                } else {
+                     draw(e); 
+                }
+            };
+
+            const stopDrawing = () => {
+                isDrawing = false;
+                stopSound();
+            };
+
+            // Mouse Events
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+
+            // Touch Events
+            canvas.addEventListener('touchstart', startDrawing, { passive: false });
+            canvas.addEventListener('touchmove', draw, { passive: false });
+            canvas.addEventListener('touchend', stopDrawing);
+            canvas.addEventListener('touchcancel', stopDrawing);
+
+            const tools = {
+                'tool-rake': 'rake',
+                'tool-rainbow': 'rainbow',
+                'tool-turtle': 'turtle',
+                'tool-butterfly': 'butterfly',
+                'tool-crab': 'crab',
+                'tool-dragonfly': 'dragonfly',
+                'tool-koi': 'koi'
+            };
+
+            for (const [id, toolName] of Object.entries(tools)) {
+                document.getElementById(id).addEventListener('click', (e) => {
+                    // Update UI
+                    Object.keys(tools).forEach(btnId => document.getElementById(btnId).classList.remove('active'));
+                    e.currentTarget.classList.add('active');
+                    currentTool = toolName;
+                    
+                    // Make the sound more magical for the colorful tools
+                    if (oscillator) {
+                        if (toolName === 'rainbow' || toolName === 'lotus') {
+                             oscillator.type = 'sine'; 
+                        } else {
+                             oscillator.type = 'triangle'; // Softer sound than square
+                        }
+                    }
+                });
+            }
+
+            btnSmooth.addEventListener('click', () => {
+                if (!isClearing) {
+                    isClearing = true;
+                    laserX = 0;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
